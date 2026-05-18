@@ -1,4 +1,4 @@
-/************************************************************************************\ 
+/************************************************************************************\
  *                                                                                  *
  * Copyright © 2014 Advanced Micro Devices, Inc.                                    *
  * Copyright (c) 2015 Mark D. Hill and David A. Wood                                *
@@ -187,7 +187,7 @@ int main(int argc, char **argv)
         // free mmap, close file
         munmap(distmatrixmap, (dim * dim + 1) * sizeof(int));
         close(fd);
-    } else { 
+    } else {
         // Parse the adjacency matrix
         int *adjmatrix = parse_graph_file(&dim, &num_edges, tmpchar);
 
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
                 }
             }
         }
-        if (create_mmap) { 
+        if (create_mmap) {
             printf("creating an mmap\n");
 
             // Prints distmatrix to file
@@ -226,7 +226,7 @@ int main(int argc, char **argv)
             return 0;
         }
         free(adjmatrix);
-    }    
+    }
 
     // Initialize the result matrix
     result = (int *)malloc(dim * dim * sizeof(int));
@@ -250,6 +250,7 @@ int main(int argc, char **argv)
     //double timer1 = gettime();
 
 #ifdef GEM5_FUSION
+    m5_switch_cpu(); // added by zyh
     m5_work_begin(0, 0);
 #endif
 
