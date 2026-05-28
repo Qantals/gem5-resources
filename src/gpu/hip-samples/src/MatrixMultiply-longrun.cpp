@@ -25,6 +25,8 @@ THE SOFTWARE.
 // hip header file
 #include "hip/hip_runtime.h"
 
+#include <stdint.h>
+#include <gem5/m5ops.h>
 
 #define WIDTH     256
 
@@ -94,6 +96,8 @@ int main(int argc, char** argv) {
 
     printf("info: launch 'matrixMultiply' kernel\n");
 
+    m5_work_begin(0, 0);
+
     for (int rep = 0; rep < kernel_repeats; rep++) {
         hipLaunchKernelGGL(matrixMultiply,
                                              dim3(blocksX, blocksY),
@@ -102,6 +106,8 @@ int main(int argc, char** argv) {
                                              gpuMultiplyMatrix, Matrix, MatrixB, WIDTH, inner_iters);
     }
     hipDeviceSynchronize();
+
+    m5_work_end(0, 0);
 
     // sample an element to ensure kernel executed
     float sample = gpuMultiplyMatrix[0];

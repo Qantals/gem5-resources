@@ -25,6 +25,8 @@ THE SOFTWARE.
 // hip header file
 #include "hip/hip_runtime.h"
 
+#include <stdint.h>
+#include <gem5/m5ops.h>
 
 #define WIDTH     1024
 
@@ -99,6 +101,8 @@ int main(int argc, char** argv) {
     const unsigned blocksX = WIDTH/THREADS_PER_BLOCK_X;
     const unsigned blocksY = WIDTH/THREADS_PER_BLOCK_Y;
 
+    m5_work_begin(0, 0);
+
     printf("info: launch 'matrixTranspose' kernel\n");
 
     for (int rep = 0; rep < kernel_repeats; rep++) {
@@ -109,6 +113,8 @@ int main(int argc, char** argv) {
                                              gpuTransposeMatrix, Matrix, WIDTH, inner_iters);
     }
     hipDeviceSynchronize();
+
+    m5_work_end(0, 0);
 
     // sample an element to ensure kernel executed
     float sample = gpuTransposeMatrix[0];
