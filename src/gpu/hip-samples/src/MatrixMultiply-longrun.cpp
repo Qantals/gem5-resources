@@ -28,11 +28,6 @@ THE SOFTWARE.
 #include <stdint.h>
 #include <gem5/m5ops.h>
 
-#define WIDTH     256
-
-
-#define NUM       (WIDTH*WIDTH)
-
 #define THREADS_PER_BLOCK_X  4
 #define THREADS_PER_BLOCK_Y  4
 #define THREADS_PER_BLOCK_Z  1
@@ -67,45 +62,94 @@ int main(int argc, char** argv) {
     float* Matrix = nullptr;
     float* MatrixB = nullptr;
     float* gpuMultiplyMatrix = nullptr;
+    float* dMatrix = nullptr;
+    float* dMatrixB = nullptr;
+    float* dGpuMultiplyMatrix = nullptr;
 
     hipDeviceProp_t devProp;
-    hipGetDeviceProperties(&devProp, 0);
+    hipError_t err = hipSuccess;
+    err = hipGetDeviceProperties(&devProp, 0);
+    if (err != hipSuccess) {
+        printf("ERROR: hipGetDeviceProperties => %d\n", err);
+        return -1;
+    }
 
     std::cout << "Device name " << devProp.name << std::endl;
 
-    int kernel_repeats = 100;
-    int inner_iters = 256;
-    if (argc >= 2) kernel_repeats = atoi(argv[1]);
-    if (argc >= 3) inner_iters = atoi(argv[2]);
+    int width = 2048;
+    int kernel_repeats = 2;
+    int inner_iters = 1;
+    if (argc >= 2) width = atoi(argv[1]);
+    if (argc >= 3) kernel_repeats = atoi(argv[2]);
+    if (argc >= 4) inner_iters = atoi(argv[3]);
 
-    printf("info: WIDTH=%d NUM=%d kernel_repeats=%d inner_iters=%d\n", WIDTH, NUM, kernel_repeats, inner_iters);
+    const size_t num = (size_t)width * (size_t)width;
+    printf("info: WIDTH=%d NUM=%zu kernel_repeats=%d inner_iters=%d\n", width, num, kernel_repeats, inner_iters);
 
-    // allocate host-pinned input and output so kernel can read/write directly
-    hipHostMalloc(&Matrix, NUM * sizeof(float));
-    hipHostMalloc(&MatrixB, NUM * sizeof(float));
-    hipHostMalloc(&gpuMultiplyMatrix, NUM * sizeof(float));
+    const size_t bytes = num * sizeof(float);
 
-    // initialize the input data on CPU (kept, but WIDTH reduced to limit overhead)
-    for (int i = 0; i < NUM; i++) {
-        Matrix[i] = (float)i*10.0f;
-        MatrixB[i] = (float)i*0.5f;
+    // allocate host and device buffers
+    Matrix = new float[num];
+    MatrixB = new float[num];
+    gpuMultiplyMatrix = new float[num];
+    err = hipMalloc(&dMatrix, bytes);
+    if (err != hipSuccess) {
+        printf("ERROR: hipMalloc dMatrix (size:%zu) => %d\n", bytes, err);
+        return -1;
+    }
+    err = hipMalloc(&dMatrixB, bytes);
+    if (err != hipSuccess) {
+        printf("ERROR: hipMalloc dMatrixB (size:%zu) => %d\n", bytes, err);
+        return -1;
+    }
+    err = hipMalloc(&dGpuMultiplyMatrix, bytes);
+    if (err != hipSuccess) {
+        printf("ERROR: hipMalloc dGpuMultiplyMatrix (size:%zu) => %d\n", bytes, err);
+        return -1;
     }
 
-    const unsigned blocksX = WIDTH/THREADS_PER_BLOCK_X;
-    const unsigned blocksY = WIDTH/THREADS_PER_BLOCK_Y;
+    // initialize the input data on CPU
+    for (size_t i = 0; i < num; i++) {
+        Matrix[i] = (float)i * 10.0f;
+        MatrixB[i] = (float)i * 0.5f;
+    }
+
+    const unsigned blocksX = (width + THREADS_PER_BLOCK_X - 1) / THREADS_PER_BLOCK_X;
+    const unsigned blocksY = (width + THREADS_PER_BLOCK_Y - 1) / THREADS_PER_BLOCK_Y;
 
     printf("info: launch 'matrixMultiply' kernel\n");
 
     m5_work_begin(0, 0);
+
+    err = hipMemcpy(dMatrix, Matrix, bytes, hipMemcpyHostToDevice);
+    if (err != hipSuccess) {
+        fprintf(stderr, "ERROR: hipMemcpy dMatrix (size:%zu) => %d\n", bytes, err);
+        return -1;
+    }
+    err = hipMemcpy(dMatrixB, MatrixB, bytes, hipMemcpyHostToDevice);
+    if (err != hipSuccess) {
+        fprintf(stderr, "ERROR: hipMemcpy dMatrixB (size:%zu) => %d\n", bytes, err);
+        return -1;
+    }
 
     for (int rep = 0; rep < kernel_repeats; rep++) {
         hipLaunchKernelGGL(matrixMultiply,
                                              dim3(blocksX, blocksY),
                                              dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                                              0, 0,
-                                             gpuMultiplyMatrix, Matrix, MatrixB, WIDTH, inner_iters);
+                                             dGpuMultiplyMatrix, dMatrix, dMatrixB, width, inner_iters);
     }
-    hipDeviceSynchronize();
+    err = hipDeviceSynchronize();
+    if (err != hipSuccess) {
+        fprintf(stderr, "ERROR: hipDeviceSynchronize => %d\n", err);
+        return -1;
+    }
+
+    err = hipMemcpy(gpuMultiplyMatrix, dGpuMultiplyMatrix, bytes, hipMemcpyDeviceToHost);
+    if (err != hipSuccess) {
+        fprintf(stderr, "ERROR: hipMemcpy dGpuMultiplyMatrix (size:%zu) => %d\n", bytes, err);
+        return -1;
+    }
 
     m5_work_end(0, 0);
 
@@ -114,9 +158,12 @@ int main(int argc, char** argv) {
     printf("info: sample output = %f\n", sample);
 
     // free the resources
-    hipHostFree(gpuMultiplyMatrix);
-    hipHostFree(MatrixB);
-    hipHostFree(Matrix);
+    hipFree(dGpuMultiplyMatrix);
+    hipFree(dMatrixB);
+    hipFree(dMatrix);
+    delete[] gpuMultiplyMatrix;
+    delete[] MatrixB;
+    delete[] Matrix;
 
     return 0;
 }
